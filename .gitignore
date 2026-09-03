@@ -1,2 +1,9 @@
 # 密钥文件 - 绝不能推到 GitHub
 key.txt
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 数据记录（按需保留时可删掉这几行）
+*.csv

@@ -491,7 +491,35 @@ def run_agent_streamlit(user_goal, max_steps=15, status_container=None, log_cont
         if message.get("tool_calls"):
             for tool_call in message["tool_calls"]:
                 func_name = tool_call["function"]["name"]
-                func_args = json.loads(tool_call["function"]["arguments"])
+
+                # 容错：qwen-plus 偶尔返回格式错误的 JSON（缺逗号 / 转义错乱）
+                raw_args = tool_call["function"]["arguments"]
+                try:
+                    func_args = json.loads(raw_args)
+                except json.JSONDecodeError as e:
+                    # 修复策略 1：尝试修复常见问题（尾随逗号、未闭合引号）
+                    fixed = raw_args.strip()
+                    # 去掉尾随逗号
+                    if fixed.endswith(","):
+                        fixed = fixed[:-1]
+                    # 补全缺失的右括号
+                    if fixed.count("{") > fixed.count("}"):
+                        fixed += "}" * (fixed.count("{") - fixed.count("}"))
+                    if fixed.count("[") > fixed.count("]"):
+                        fixed += "]" * (fixed.count("[") - fixed.count("]"))
+                    try:
+                        func_args = json.loads(fixed)
+                    except json.JSONDecodeError:
+                        # 修复策略 2：跳过这个工具调用 + 把错误回传给 AI 让它重试
+                        error_msg = f"工具 {func_name} 参数 JSON 解析失败：{e}。原始参数前 200 字符：{raw_args[:200]}"
+                        if log_container:
+                            log_container.error(f"⚠️ {error_msg}")
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tool_call["id"],
+                            "content": json.dumps({"error": error_msg, "retry": True}, ensure_ascii=False),
+                        })
+                        continue
 
                 # 检测进入 Self-Check 阶段（第一次调 verify_observation 时）
                 if func_name == "verify_observation":
